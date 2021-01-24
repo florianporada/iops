@@ -215,7 +215,8 @@ def randomly_mutate_population(population, mutation_probability):
 
 
 # -------------------------- Load data
-cities = get_cities('geodata/cities_pop_10000000.geojson')
+cities_file = 'geodata/cities_pop_5000000.geojson'
+cities = get_cities(cities_file)
 bedrock = 'ufff'
 
 
@@ -274,7 +275,7 @@ with open('geodata/processed_map_elements.pkl', 'rb') as fp:
 population_size = 1000  # amount of coords
 chromosome_length = 2  # coords (lon, lat)
 max_generations = 50
-mutation_probability = 0.25
+mutation_rate = 0.002
 
 population = generate_initial_population(population_size, chromosome_length)
 
@@ -313,7 +314,6 @@ for generation in range(max_generations):
     population = np.array(new_population)
 
     # Apply mutation
-    mutation_rate = 0.002
     population = randomly_mutate_population(population, mutation_rate)
 
     if debug:
@@ -328,7 +328,12 @@ print("Best chromosome: " + str(best_result))
 print("Fitness: " + str(max_fitness))
 print("https://www.google.com/maps/search/?api=1&query=" +
       str(best_result[1]) + "," + str(best_result[0]))
+print("==================================================")
+print("Data")
+print("Cities: " + cities_file)
+print("...")
 
 
 # [-160.42666633  -47.61328754] - new
 # [-160.58738847  -47.35714332] - maurice
+# Best chromosome: [150.38105895 -79.62562572]
