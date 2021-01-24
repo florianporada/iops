@@ -1,0 +1,40 @@
+{
+  "name": "babel_webpack_starter",
+  "version": "1.0.0",
+  "description": "Starter pack for compiling ES6+ apps to ES5",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "webpack-dev-server --output-public-path=/build/ --mode development --progress --open --hot",
+    "start:mobile": "webpack-dev-server --output-public-path=/build/ --mode development --progress --open --hot --host 0.0.0.0 --https",
+    "build": "webpack --mode production --progress"
+  },
+  "author": "Brad Traversy",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.4.3",
+    "@babel/polyfill": "^7.4.3",
+    "@babel/preset-env": "^7.4.3",
+    "babel-eslint": "^10.1.0",
+    "babel-loader": "^8.0.5",
+    "eslint": "^7.15.0",
+    "eslint-config-prettier": "^7.0.0",
+    "eslint-plugin-babel": "^5.3.1",
+    "eslint-plugin-prettier": "^3.3.0",
+    "prettier": "^2.2.1",
+    "webpack": "^4.16.1",
+    "webpack-cli": "^3.0.8",
+    "webpack-dev-server": "^3.1.10"
+  },
+  "dependencies": {
+    "@turf/turf": "^5.1.6",
+    "axios": "^0.21.1",
+    "d3": "^6.3.1",
+    "d3-geo": "^2.0.1",
+    "d3-geo-projection": "^3.0.0",
+    "d3-geo-voronoi": "^1.6.0",
+    "d3-scale": "^3.2.3",
+    "d3-scale-chromatic": "^2.0.0",
+    "topojson": "^3.0.2"
+  }
+}

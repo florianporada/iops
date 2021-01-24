@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Atomic Tomb</title>
+  <style>
+    .triangles {
+        stroke: #444;
+        stroke-width: 2;
+        fill: none
+    }
+    .country {
+      fill: #ccc;
+      stroke: #fff;
+      stroke-width: .5px;
+      stroke-linejoin: round;
+    }
+
+    .graticule {
+      fill: none;
+      stroke: #000;
+      stroke-opacity: .3;
+      stroke-width: .5px;
+    }
+
+    .graticule.outline {
+      stroke: #333;
+      stroke-opacity: 1;
+      stroke-width: 1.5px;
+    }
+
+    .sites {
+      stroke: #234311;
+      fill: #234311;
+    }
+
+    .centroid {
+      stroke: red;
+      fill: red;
+    }
+
+    .geoCentroid {
+      stroke: yellow;
+      fill: yellow;
+    }
+
+    #rotation {
+      position: absolute;
+      font-family: monospace;
+      padding: 10px;
+      background: rgba(255, 255, 255, .5);
+    }
+
+    #rotation input {
+      width: 300px;
+    }
+</style>
+</head>
+<body>
+  <div id="rotation"></div>
+  <svg width="960" height="600"></svg>
+
+  <script src="build/app.bundle.js"></script>
+</body>
+</html>
