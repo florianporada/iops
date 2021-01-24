@@ -67,7 +67,7 @@ def create_grid_elements(shape):
                 (longitude, latitude + latitude_size)
             ])
 
-            splitted = grid_element.intersection(oceans)
+            splitted = grid_element.intersection(shape)
 
             grid_dict[str(longitude) + ',' + str(latitude)] = splitted
 
@@ -129,9 +129,15 @@ def is_in_shape(point, shape):
 
 
 def get_fitness(point):
+    grid_element_key = str(math.floor(
+        point[0])) + "," + str(math.floor(point[1]))
     # evaluate by distance
     fitness_distance = get_closest_city(point, cities)
-    # fitness_ocean = is_in_shape(point, els['20,35'])
+    fitness_ocean = is_in_shape(point, grid_elements[grid_element_key])
+
+    if fitness_ocean:
+        # when point is in ocean return really bad fitness score
+        return -999999
 
     return fitness_distance
 
@@ -195,7 +201,7 @@ def breed_by_crossover(parent_1, parent_2):
 
 def randomly_mutate_population(population, mutation_probability):
     # Apply random mutation
-    random_mutation_array = np.random.random(
+    random_mutation_array = np.random.random_sample(
         size=(population.shape))
 
     random_mutation_boolean = \
@@ -210,10 +216,6 @@ def randomly_mutate_population(population, mutation_probability):
 
 # -------------------------- Load data
 cities = get_cities('geodata/cities_pop_10000000.geojson')
-oceans = get_map_shape(
-    'geodata/ne_10m_ocean_scale_rank/ne_10m_ocean_scale_rank.shp', simplify=False, tolerance=0.5)
-# land = get_map_shape('geodata/ne_10m_land/ne_10m_land.shp',
-#                      simplify=False, tolerance=5)
 bedrock = 'ufff'
 
 
@@ -224,6 +226,10 @@ if not Path('geodata/').is_dir():
     os.mkdir('geodata/')
 
 if not pkl_file.is_file():
+    # land = get_map_shape('geodata/ne_10m_land/ne_10m_land.shp',
+    #                      simplify=False, tolerance=5)
+    oceans = get_map_shape(
+        'geodata/ne_10m_ocean_scale_rank/ne_10m_ocean_scale_rank.shp', simplify=False, tolerance=0.5)
     print("Did not find processed map")
     grid_elements = create_grid_elements(oceans)
 
@@ -237,24 +243,31 @@ with open('geodata/processed_map_elements.pkl', 'rb') as fp:
 # # POC for interectinal function
 # splitted = grid_elements['8,4'].intersection(oceans)
 # print(splitted)
-
-fig, axs = plt.subplots()
-axs.set_aspect('equal', 'datalim')
-
-for key in grid_elements:
-    x, y = grid_elements[key].exterior.xy
-    axs.fill(x, y, alpha=0.5, c=np.random.rand(3,))
-
+#
 # fig, axs = plt.subplots()
 # axs.set_aspect('equal', 'datalim')
-
+#
+# for key in grid_elements:
+#     el = grid_elements[key]
+#
+#     if not el.is_empty:
+#         if el.geom_type == 'MultiPolygon':
+#             for geom in el.geoms:
+#                 xs, ys = geom.exterior.xy
+#                 axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
+#
+#         if el.geom_type == 'Polygon':
+#             xs, ys = el.exterior.xy
+#             axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
+#
+# fig, axs = plt.subplots()
+# axs.set_aspect('equal', 'datalim')
+#
 # for geom in land.geoms:
 #     xs, ys = geom.exterior.xy
 #     axs.fill(xs, ys, alpha=0.5, fc='r', ec='none')
-
-plt.show()
-
-exit()
+#
+# plt.show()
 
 
 # -------------------------- GA parameter
