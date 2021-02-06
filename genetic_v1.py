@@ -1,18 +1,22 @@
-import matplotlib.pyplot as plt
-import json
-import numpy as np
-import math
-import fiona
+from datetime import datetime
+from mpl_toolkits.basemap import Basemap
+from inspect import cleandoc as dedent
+from pathlib import Path
 from shapely.geometry import Point, Polygon, MultiPolygon, shape
 from shapely.geometry.polygon import LinearRing
 from shapely.ops import split
-import random
+import fiona
+import json
+import math
+import matplotlib.animation as animation
 import matplotlib.pyplot as plt
-import pickle
-from pathlib import Path
+import numpy as np
 import os
+import pickle
+import random
 import sys
-from datetime import datetime
+import cv2
+
 
 # Info:
 # GeoJson: [lng, lat]
@@ -77,6 +81,68 @@ def create_grid_elements(shape):
     return grid_dict
 
 
+def create_image_grid_elements(image_path):
+    # read image
+    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+
+    # get dimensions of image
+    dimensions = img.shape
+    print('Image Dimension    : ', img.shape)
+
+    # height, width, number of channels in image
+    height = img.shape[0]
+    width = img.shape[1]
+    channels = img.shape[2] if len(img.shape) > 2 else -1
+
+    # map lon + lat to pixel dimensions
+    longitude_size = int(width / 360)
+    latitude_size = int(height / 180)
+    grid_dict = {}
+
+    print('Image Dimension    : ', dimensions)
+    print('Image Height       : ', height)
+    print('Image Width        : ', width)
+    print('Number of Channels : ', channels)
+    print('lon size : ', longitude_size)
+    print('lat size : ', latitude_size)
+
+    for latitude in range(-90, 90):
+        print(latitude)
+        lat_index = latitude + 90
+        for longitude in range(-180, 180):
+            lon_index = longitude + 180
+
+            # get lonlat tile
+            # https://stackoverflow.com/questions/9084609/
+            # x, y, w, h = cv2.boundingRect(c)
+
+            # x1 = 1 + lon_index * longitude_size
+            # y1 = lat_index * latitude_size + latitude_size
+            # x2 = lon_index * longitude_size + longitude_size
+            # y2 = 1 + lat_index * latitude_size
+
+            y = height - (lat_index + 1) * latitude_size
+            x = lon_index * longitude_size
+
+            crop_img = img[y:y + latitude_size, x:x + longitude_size]
+
+            # roi = img[y:y + h, x:x + w]
+            # roi = img[x1:y1, x2:y2]
+
+            grid_dict[str(longitude) + ',' + str(latitude)] = crop_img
+
+            if (latitude == -1 and longitude == -92):
+                # if (lat_index == 0 and lon_index == 0):
+                print('lonlat index', lon_index, lat_index)
+                print('tile coords', x, y)
+                cv2.imshow('image' + str(longitude) +
+                           ',' + str(latitude), crop_img)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
+    return grid_dict
+
+
 def get_haversine_distance(lon1, lat1, lon2, lat2):
     R = 6378.137
     R = 6371
@@ -125,9 +191,8 @@ def is_in_shape(point, shape):
 
     return p1.within(shape)
 
+
 # -------------------------- GA Code
-
-
 def get_fitness(point):
     grid_element_key = str(math.floor(
         point[0])) + "," + str(math.floor(point[1]))
@@ -241,34 +306,61 @@ with open('geodata/processed_map_elements.pkl', 'rb') as fp:
     grid_elements = pickle.load(fp)
 
 
-# # POC for interectinal function
+# # POC for intersectinal function
 # splitted = grid_elements['8,4'].intersection(oceans)
 # print(splitted)
-#
-# fig, axs = plt.subplots()
-# axs.set_aspect('equal', 'datalim')
-#
-# for key in grid_elements:
-#     el = grid_elements[key]
-#
-#     if not el.is_empty:
-#         if el.geom_type == 'MultiPolygon':
-#             for geom in el.geoms:
-#                 xs, ys = geom.exterior.xy
-#                 axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
-#
-#         if el.geom_type == 'Polygon':
-#             xs, ys = el.exterior.xy
-#             axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
-#
-# fig, axs = plt.subplots()
-# axs.set_aspect('equal', 'datalim')
-#
-# for geom in land.geoms:
-#     xs, ys = geom.exterior.xy
-#     axs.fill(xs, ys, alpha=0.5, fc='r', ec='none')
-#
-# plt.show()
+
+
+# -------------------------- Helper Methods
+def show_grid_elements(elements):
+    fig, axs = plt.subplots()
+    axs.set_aspect('equal', 'datalim')
+
+    for key in elements:
+        el = elements[key]
+
+        if not el.is_empty:
+            if el.geom_type == 'MultiPolygon':
+                for geom in el.geoms:
+                    xs, ys = geom.exterior.xy
+                    axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
+
+            if el.geom_type == 'Polygon':
+                xs, ys = el.exterior.xy
+                axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
+
+    # for geom in land.geoms:
+    #     xs, ys = geom.exterior.xy
+    #     axs.fill(xs, ys, alpha=0.5, fc='r', ec='none')
+
+    plt.show()
+
+
+def create_video(point_array):
+    FFMpegWriter = animation.writers['ffmpeg']
+    metadata = dict(title='GA Coords', artist='florianporada',
+                    comment='IOPS')
+    writer = FFMpegWriter(fps=25, metadata=metadata)
+
+    # basemap = Basemap(projection='mill', lon_0=0)
+    # basemap.drawcoastlines()
+    # basemap.drawmapboundary(fill_color='aqua')
+    # basemap.fillcontinents(color='coral', lake_color='aqua')
+
+    fig = plt.figure()
+
+    plt.xlim(-180, 180)
+    plt.ylim(-90, 90)
+    sct = plt.scatter(point_array[0][:, 0],
+                      point_array[0][:, 1], c='r')
+
+    with writer.saving(fig, "genetic_coords_viz.mp4", 300):
+        for i in range(len(point_array)):
+            curr_pop = point_array[i]
+            sct.set_offsets(curr_pop)
+
+            for i in range(2):
+                writer.grab_frame()
 
 
 # -------------------------- GA parameter
@@ -278,6 +370,12 @@ max_generations = 50
 mutation_rate = 0.002
 
 population = generate_initial_population(population_size, chromosome_length)
+population_history = [population]
+
+create_image_grid_elements(
+    '/Users/florianporada/Desktop/ppp/gebco_08_rev_elev_21600x10800.png')
+
+exit()
 
 # -------------------------- Execution
 for generation in range(max_generations):
@@ -315,6 +413,7 @@ for generation in range(max_generations):
 
     # Apply mutation
     population = randomly_mutate_population(population, mutation_rate)
+    population_history.append(population)
 
     if debug:
         print("population:")
@@ -337,3 +436,7 @@ print("...")
 # [-160.42666633  -47.61328754] - new
 # [-160.58738847  -47.35714332] - maurice
 # Best chromosome: [150.38105895 -79.62562572]
+
+print("==================================================")
+print("Create Video")
+create_video(population_history)

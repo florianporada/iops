@@ -141,3 +141,4 @@ dmypy.json
 cython_debug/
 
 .vscode
+genetic_coords_viz.mp4
