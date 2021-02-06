@@ -81,6 +81,21 @@ def create_grid_elements(shape):
     return grid_dict
 
 
+def get_crop_rect(lon, lat, rect_width, rect_height, dimensions):
+    img_height = dimensions[0]
+    img_width = dimensions[1]
+    lon_index = lon + 180
+    lat_index = lat + 90
+
+    y = img_height - (lat_index + 1) * rect_height
+    yh = y + rect_height
+
+    x = lon_index * rect_width
+    xw = x + rect_width
+
+    return y, yh, x, xw
+
+
 def create_image_grid_elements(image_path):
     # read image
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
@@ -107,38 +122,15 @@ def create_image_grid_elements(image_path):
     print('lat size : ', latitude_size)
 
     for latitude in range(-90, 90):
-        print(latitude)
-        lat_index = latitude + 90
         for longitude in range(-180, 180):
-            lon_index = longitude + 180
-
             # get lonlat tile
             # https://stackoverflow.com/questions/9084609/
-            # x, y, w, h = cv2.boundingRect(c)
+            y, yh, x, xw = get_crop_rect(
+                longitude, latitude, longitude_size, latitude_size, img.shape)
 
-            # x1 = 1 + lon_index * longitude_size
-            # y1 = lat_index * latitude_size + latitude_size
-            # x2 = lon_index * longitude_size + longitude_size
-            # y2 = 1 + lat_index * latitude_size
-
-            y = height - (lat_index + 1) * latitude_size
-            x = lon_index * longitude_size
-
-            crop_img = img[y:y + latitude_size, x:x + longitude_size]
-
-            # roi = img[y:y + h, x:x + w]
-            # roi = img[x1:y1, x2:y2]
+            crop_img = img[y:yh, x:xw]
 
             grid_dict[str(longitude) + ',' + str(latitude)] = crop_img
-
-            if (latitude == -1 and longitude == -92):
-                # if (lat_index == 0 and lon_index == 0):
-                print('lonlat index', lon_index, lat_index)
-                print('tile coords', x, y)
-                cv2.imshow('image' + str(longitude) +
-                           ',' + str(latitude), crop_img)
-                cv2.waitKey(0)
-                cv2.destroyAllWindows()
 
     return grid_dict
 
@@ -372,10 +364,15 @@ mutation_rate = 0.002
 population = generate_initial_population(population_size, chromosome_length)
 population_history = [population]
 
-create_image_grid_elements(
-    '/Users/florianporada/Desktop/ppp/gebco_08_rev_elev_21600x10800.png')
+# tiles = create_image_grid_elements(
+#     '/Users/florianporada/Desktop/ppp/gebco_08_rev_elev_21600x10800.png')
 
-exit()
+# test_img = tiles['-92,-1']
+# cv2.imshow('image -92,-1', test_img)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
+
+# exit()
 
 # -------------------------- Execution
 for generation in range(max_generations):
