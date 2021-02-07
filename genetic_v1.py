@@ -347,7 +347,7 @@ def create_video(point_array):
     sct = plt.scatter(point_array[0][:, 0],
                       point_array[0][:, 1], c='r')
 
-    with writer.saving(fig, "genetic_coords_viz.mp4", 300):
+    with writer.saving(fig, "./output/genetic_coords_viz.mp4", 300):
         for i in range(len(point_array)):
             curr_pop = point_array[i]
             sct.set_offsets(curr_pop)
