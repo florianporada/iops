@@ -18,7 +18,6 @@ import sys
 import cv2
 import urllib3
 
-
 # Info:
 # GeoJson: [lng, lat]
 # x y ~ lng lat
@@ -176,28 +175,33 @@ def get_closest_city(point, cities):
 
     closest_city = sorted_city_distances[0]
 
+    # Add closest city distance of chromosome for fitness evaluation
+    current_population_closest_distances.append(closest_city['city_distance'])
+
     return closest_city['city_distance']
 
 
 def is_in_shape(point, shape):
     p1 = Point(point)
 
-    return p1.within(shape)
+    if p1.within(shape):
+        return 0
+    else:
+        return 1
 
 
 # -------------------------- GA Code
-def get_fitness(point):
+def get_constraint_data(point):
     grid_element_key = str(math.floor(
         point[0])) + "," + str(math.floor(point[1]))
+
     # evaluate by distance
-    fitness_distance = get_closest_city(point, cities)
-    fitness_ocean = is_in_shape(point, grid_elements[grid_element_key])
+    distance = get_closest_city(point, cities)
 
-    if fitness_ocean:
-        # when point is in ocean return really bad fitness score
-        return -999999
+    # 0 = point is the water (bad), 1 = not in water (good)
+    in_ocean = is_in_shape(point, grid_elements[grid_element_key])
 
-    return fitness_distance
+    return {'constraint_ocean': in_ocean, 'constraint_distance': distance}
 
 
 def generate_initial_population(individuals, chromosome_length):
@@ -390,25 +394,46 @@ mutation_rate = 0.002
 
 population = generate_initial_population(population_size, chromosome_length)
 population_history = [population]
+current_population_closest_distances = []
 
 # get_image_data()
-tiles = create_image_tiles('./image_data/blue_marble.png')
+# tiles = create_image_tiles('./image_data/blue_marble.png')
 
-test_img = tiles['-92,-1']
-cv2.imshow('image -92,-1', test_img)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-exit()
+# test_img = tiles['-92,-1']
+# cv2.imshow('image -92,-1', test_img)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
 
 # -------------------------- Execution
 for generation in range(max_generations):
     print(str(datetime.now()) + " Generation #" + str(generation))
 
     # get the fitnesses of all chromosomes in generation
+    constraint_raw_data = []
     fitness = np.empty((population_size, 1))
     for chromosome_index in range(0, population_size - 1):
-        fitness[chromosome_index] = get_fitness(population[chromosome_index])
+        constraint_raw_data.append(get_constraint_data(
+            population[chromosome_index]))
+
+    # Get distance delta form percentage transformation
+    max_city_distance = np.max(np.asarray(
+        current_population_closest_distances))
+    min_city_distance = np.min(np.asarray(
+        current_population_closest_distances))
+    delta = max_city_distance - min_city_distance
+
+    # Calculate combined fitness
+    # Simple: all fitnesses summed and divided by amount of constraints
+    # TODO: weighted fitness function
+    for chromosome_index in range(0, population_size - 1):
+        # Transform min_city_distance and max_city_distance to 0 and 1
+        fitness_distance = constraint_raw_data[chromosome_index]['constraint_distance'] * \
+            100 / max_city_distance / 100
+
+        # Fitness for ocean check 1 or 0
+        fitness_ocean = constraint_raw_data[chromosome_index]['constraint_ocean']
+
+        fitness[chromosome_index] = (fitness_distance + fitness_ocean) / 2
 
     max_fitness = np.max(fitness)
     max_fit_index = np.where(fitness == np.max(fitness))[0][0]
@@ -421,6 +446,7 @@ for generation in range(max_generations):
 
     # Create an empty list for new population
     new_population = []
+    current_population_closest_distances = []
 
     # Create new popualtion generating two children at a time
     for i in range(int(population_size / 2)):
