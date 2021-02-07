@@ -16,6 +16,7 @@ import pickle
 import random
 import sys
 import cv2
+import urllib3
 
 
 # Info:
@@ -96,7 +97,7 @@ def get_crop_rect(lon, lat, rect_width, rect_height, dimensions):
     return y, yh, x, xw
 
 
-def create_image_grid_elements(image_path):
+def create_image_tiles(image_path):
     # read image
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
 
@@ -355,6 +356,32 @@ def create_video(point_array):
                 writer.grab_frame()
 
 
+def get_image_data():
+    http = urllib3.PoolManager()
+    to_download = [
+        {'name': 'heightmap.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'},
+        {'name': 'blue_marble.png',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x10800.png'}
+    ]
+
+    for el in to_download:
+        r = http.request('GET', el['url'], preload_content=False)
+        length = int(r.getheader('content-length'))
+        size_mb = length / 1024 / 1024
+
+        print('Start downloading ' + el['name'] +
+              ' (' + str(round(size_mb, 2)) + 'MB)')
+
+        with open('./image_data/' + el['name'], 'wb') as out:
+            while True:
+                data = r.read()
+                if not data:
+                    break
+                out.write(data)
+
+        r.release_conn()
+
+
 # -------------------------- GA parameter
 population_size = 1000  # amount of coords
 chromosome_length = 2  # coords (lon, lat)
@@ -364,15 +391,15 @@ mutation_rate = 0.002
 population = generate_initial_population(population_size, chromosome_length)
 population_history = [population]
 
-# tiles = create_image_grid_elements(
-#     '/Users/florianporada/Desktop/ppp/gebco_08_rev_elev_21600x10800.png')
+# get_image_data()
+tiles = create_image_tiles('./image_data/blue_marble.png')
 
-# test_img = tiles['-92,-1']
-# cv2.imshow('image -92,-1', test_img)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
+test_img = tiles['-92,-1']
+cv2.imshow('image -92,-1', test_img)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
 
-# exit()
+exit()
 
 # -------------------------- Execution
 for generation in range(max_generations):
