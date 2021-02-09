@@ -1,27 +1,14 @@
 from datetime import datetime
-from mpl_toolkits.basemap import Basemap
-from inspect import cleandoc as dedent
 from pathlib import Path
-from shapely.geometry import Point, Polygon, MultiPolygon, shape
-from shapely.geometry.polygon import LinearRing
-from shapely.ops import split
-import fiona
-import json
 import math
-import matplotlib.animation as animation
-import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pickle
 import random
-import sys
-import cv2
-import urllib3
-from sklearn.cluster import KMeans
-from collections import Counter
-from osgeo import gdal
 
-from helper import get_image, RGB2HEX, get_dominant_color, get_elevation_tile_from_web
+from helper import get_image, RGB2HEX, create_image_tiles, create_video
+from image import get_dominant_color
+from geo import get_haversine_distance, is_in_shape, get_elevation_tile_from_web, get_cities, get_map_shape, create_grid_elements
 
 
 # Info:
@@ -31,138 +18,12 @@ from helper import get_image, RGB2HEX, get_dominant_color, get_elevation_tile_fr
 debug = False
 
 
-def get_cities(filename='geodata/cities_pop_10000000.geojson'):
-    with open(filename) as f:
-        gj = json.load(f)
-        cities = [{'name': feat['properties']['name'], 'coords': [float(feat['geometry']['coordinates'][0]), float(
-            feat['geometry']['coordinates'][1])]} for feat in gj['features']]
-
-    print("Loaded " + str(len(cities)) + " city coordinates")
-
-    return cities
-
-
-def get_map_shape(filename='geodata/ne_10m_ocean/ne_10m_ocean.shp', simplify=False, tolerance=0.5):
-    multipolygon = MultiPolygon([shape(pol['geometry'])
-                                 for pol in fiona.open(filename)])
-
-    print("Loaded " + str(filename) + " multipolygon")
-
-    if not multipolygon.is_valid:
-        print("Shape not valid. Applying fix")
-        multipolygon = multipolygon.buffer(0)
-
-    if simplify:
-        simplified = multipolygon.simplify(tolerance)
-        simplified = simplified.buffer(0)
-
-        return simplified
-
-    return multipolygon
-
-
-def create_grid_elements(shape):
-    longitude_size = 0.99999999
-    latitude_size = 0.99999999
-    grid_dict = {}
-
-    print("Start grid creation (this may take a while)")
-
-    for latitude in range(-90, 90):
-        for longitude in range(-180, 180):
-            grid_element = Polygon([
-                (longitude, latitude),
-                (longitude + longitude_size, latitude),
-                (longitude + longitude_size, latitude + latitude_size),
-                (longitude, latitude + latitude_size)
-            ])
-
-            splitted = grid_element.intersection(shape)
-
-            grid_dict[str(longitude) + ',' + str(latitude)] = splitted
-
-        print(str(datetime.now()) +
-              " Calculated intersections for lat row " + str(latitude) + "/90")
-
-    return grid_dict
-
-
-def get_crop_rect(lon, lat, rect_width, rect_height, dimensions):
-    img_height = dimensions[0]
-    img_width = dimensions[1]
-    lon_index = lon + 180
-    lat_index = lat + 90
-
-    y = img_height - (lat_index + 1) * rect_height
-    yh = y + rect_height
-
-    x = lon_index * rect_width
-    xw = x + rect_width
-
-    return y, yh, x, xw
-
-
-def create_image_tiles(image_path):
-    # read image
-    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-
-    # get dimensions of image
-    dimensions = img.shape
-    print('Image Dimension    : ', img.shape)
-
-    # height, width, number of channels in image
-    height = img.shape[0]
-    width = img.shape[1]
-    channels = img.shape[2] if len(img.shape) > 2 else -1
-
-    # map lon + lat to pixel dimensions
-    longitude_size = int(width / 360)
-    latitude_size = int(height / 180)
-    grid_dict = {}
-
-    print('Image Dimension    : ', dimensions)
-    print('Image Height       : ', height)
-    print('Image Width        : ', width)
-    print('Number of Channels : ', channels)
-    print('lon size : ', longitude_size)
-    print('lat size : ', latitude_size)
-
-    for latitude in range(-90, 90):
-        for longitude in range(-180, 180):
-            # get lonlat tile
-            # https://stackoverflow.com/questions/9084609/
-            y, yh, x, xw = get_crop_rect(
-                longitude, latitude, longitude_size, latitude_size, img.shape)
-
-            crop_img = img[y:yh, x:xw]
-
-            grid_dict[str(longitude) + ',' + str(latitude)] = crop_img
-
-    return grid_dict
-
-
-def get_haversine_distance(lon1, lat1, lon2, lat2):
-    R = 6378.137
-    R = 6371
-    dLat = lat2 * math.pi / 180 - lat1 * math.pi / 180
-    dLon = lon2 * math.pi / 180 - lon1 * math.pi / 180
-    a = math.sin(dLat/2) * math.sin(dLat/2) + math.cos(lat1 * math.pi / 180) * \
-        math.cos(lat2 * math.pi / 180) * math.sin(dLon/2) * math.sin(dLon/2)
-
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    d = R * c
-
-    # Kilometers
-    return d
-
-
 def get_closest_city(point, cities):
     city_distances = []
 
     for city in cities:
         distance = get_haversine_distance(
             point[0], point[1], city['coords'][0], city['coords'][1])
-        # distance = get_distance(point, city['coords'])
 
         city_distances.append({
             'city_coords': city['coords'],
@@ -187,15 +48,6 @@ def get_closest_city(point, cities):
     return closest_city['city_distance']
 
 
-def is_in_shape(point, shape):
-    p1 = Point(point)
-
-    if p1.within(shape):
-        return 0
-    else:
-        return 1
-
-
 # -------------------------- GA Code
 def get_constraint_data(point):
     grid_element_key = str(math.floor(
@@ -207,7 +59,12 @@ def get_constraint_data(point):
     # 0 = point is the water (bad), 1 = not in water (good)
     in_ocean = is_in_shape(point, grid_elements[grid_element_key])
 
-    return {'constraint_ocean': in_ocean, 'constraint_distance': distance}
+    return {
+        'constraint_ocean': in_ocean,
+        'constraint_distance': distance,
+        'constraints_height': 0,
+        'constraint_health': 0,
+    }
 
 
 def generate_initial_population(individuals, chromosome_length):
@@ -309,89 +166,6 @@ with open('geodata/processed_map_elements.pkl', 'rb') as fp:
     grid_elements = pickle.load(fp)
 
 
-# # POC for intersectinal function
-# splitted = grid_elements['8,4'].intersection(oceans)
-# print(splitted)
-
-
-# -------------------------- Helper Methods
-def show_grid_elements(elements):
-    fig, axs = plt.subplots()
-    axs.set_aspect('equal', 'datalim')
-
-    for key in elements:
-        el = elements[key]
-
-        if not el.is_empty:
-            if el.geom_type == 'MultiPolygon':
-                for geom in el.geoms:
-                    xs, ys = geom.exterior.xy
-                    axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
-
-            if el.geom_type == 'Polygon':
-                xs, ys = el.exterior.xy
-                axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
-
-    # for geom in land.geoms:
-    #     xs, ys = geom.exterior.xy
-    #     axs.fill(xs, ys, alpha=0.5, fc='r', ec='none')
-
-    plt.show()
-
-
-def create_video(point_array):
-    FFMpegWriter = animation.writers['ffmpeg']
-    metadata = dict(title='GA Coords', artist='florianporada',
-                    comment='IOPS')
-    writer = FFMpegWriter(fps=25, metadata=metadata)
-
-    # basemap = Basemap(projection='mill', lon_0=0)
-    # basemap.drawcoastlines()
-    # basemap.drawmapboundary(fill_color='aqua')
-    # basemap.fillcontinents(color='coral', lake_color='aqua')
-
-    fig = plt.figure()
-
-    plt.xlim(-180, 180)
-    plt.ylim(-90, 90)
-    sct = plt.scatter(point_array[0][:, 0],
-                      point_array[0][:, 1], c='r')
-
-    with writer.saving(fig, "./output/genetic_coords_viz.mp4", 300):
-        for i in range(len(point_array)):
-            curr_pop = point_array[i]
-            sct.set_offsets(curr_pop)
-
-            for i in range(2):
-                writer.grab_frame()
-
-
-def get_image_data():
-    http = urllib3.PoolManager()
-    to_download = [
-        {'name': 'heightmap.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'},
-        {'name': 'blue_marble.png',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x10800.png'}
-    ]
-
-    for el in to_download:
-        r = http.request('GET', el['url'], preload_content=False)
-        length = int(r.getheader('content-length'))
-        size_mb = length / 1024 / 1024
-
-        print('Start downloading ' + el['name'] +
-              ' (' + str(round(size_mb, 2)) + 'MB)')
-
-        with open('./image_data/' + el['name'], 'wb') as out:
-            while True:
-                data = r.read()
-                if not data:
-                    break
-                out.write(data)
-
-        r.release_conn()
-
-
 # -------------------------- GA parameter
 population_size = 1000  # amount of coords
 chromosome_length = 2  # coords (lon, lat)
@@ -403,27 +177,27 @@ population_history = [population]
 current_population_closest_distances = []
 
 # get_image_data()
-tiles = create_image_tiles('./image_data/heightmap.png')
+# tiles = create_image_tiles('./image_data/heightmap.png')
 
-test_img = tiles['-122,41']
-cv2.imshow('image', test_img)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+# test_img = tiles['-122,41']
+# cv2.imshow('image', test_img)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
 
-# img = tiles['13,0']
+# # img = tiles['13,0']
 
 
-elevation_file = get_elevation_tile_from_web(
-    (-122, 41, -121, 42), 'image_data/-122_41_DEM.tif')
-gtif = gdal.Open(elevation_file)
-srcband = gtif.GetRasterBand(1)
+# elevation_file = get_elevation_tile_from_web(
+#     (-122, 41, -121, 42), 'image_data/-122_41_DEM.tif')
+# gtif = gdal.Open(elevation_file)
+# srcband = gtif.GetRasterBand(1)
 
-# Get raster statistics
-stats = srcband.GetStatistics(True, True)
+# # Get raster statistics
+# stats = srcband.GetStatistics(True, True)
 
-# Print the min, max, mean, stdev based on stats index
-print("[ STATS ] =  Minimum=%.3f, Maximum=%.3f, Mean=%.3f, StdDev=%.3f" % (
-    stats[0], stats[1], stats[2], stats[3]))
+# # Print the min, max, mean, stdev based on stats index
+# print("[ STATS ] =  Minimum=%.3f, Maximum=%.3f, Mean=%.3f, StdDev=%.3f" % (
+#     stats[0], stats[1], stats[2], stats[3]))
 # test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2RGB)
 
 
@@ -446,7 +220,7 @@ print("[ STATS ] =  Minimum=%.3f, Maximum=%.3f, Mean=%.3f, StdDev=%.3f" % (
 
 # plt.show()
 
-exit()
+# exit()
 
 # -------------------------- Execution
 for generation in range(max_generations):
@@ -470,14 +244,16 @@ for generation in range(max_generations):
     # Simple: all fitnesses summed and divided by amount of constraints
     # TODO: weighted fitness function
     for chromosome_index in range(0, population_size - 1):
+        el = constraint_raw_data[chromosome_index]
         # Transform min_city_distance and max_city_distance to 0 - 1
-        fitness_distance = constraint_raw_data[chromosome_index]['constraint_distance'] * \
+        fitness_distance = el['constraint_distance'] * \
             100 / max_city_distance / 100
 
         # Fitness for ocean check 1 or 0
-        fitness_ocean = constraint_raw_data[chromosome_index]['constraint_ocean']
+        fitness_ocean = el['constraint_ocean']
 
-        fitness[chromosome_index] = (fitness_distance + fitness_ocean) / 2
+        fitness[chromosome_index] = (
+            fitness_distance + fitness_ocean) / len(el.keys())
 
     max_fitness = np.max(fitness)
     max_fit_index = np.where(fitness == np.max(fitness))[0][0]

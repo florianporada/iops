@@ -145,5 +145,6 @@ genetic_coords_viz.mp4
 
 /image_data/*
 /output/*
+/temp/*
 
 !/**/.gitkeep

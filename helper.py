@@ -2,7 +2,10 @@ import cv2
 from pathlib import Path
 from sklearn.cluster import KMeans
 import numpy as np
-import elevation
+import urllib3
+import matplotlib.animation as animation
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 
 def RGB2HEX(color):
@@ -16,54 +19,162 @@ def get_image(image_path):
     return image
 
 
-def get_dominant_color(img, clusters=3, show=False):
-    # convert to rgb from bgr
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+def get_crop_rect(lon, lat, rect_width, rect_height, dimensions):
+    img_height = dimensions[0]
+    img_width = dimensions[1]
+    lon_index = lon + 180
+    lat_index = lat + 90
 
-    # reshaping to a list of pixels
-    img = img.reshape((img.shape[0] * img.shape[1], 3))
+    y = img_height - (lat_index + 1) * rect_height
+    yh = y + rect_height
 
-    # using k-means to cluster pixels
-    kmeans = KMeans(n_clusters=clusters)
+    x = lon_index * rect_width
+    xw = x + rect_width
 
-    labels = kmeans.fit_predict(img)
-
-    kmeans.fit(img)
-
-    # the cluster centers are our dominant colors.
-    colors = kmeans.cluster_centers_
-
-    # save labels
-    labels = kmeans.labels_
-
-    # returning after converting to integer from float
-    return colors.astype(int), labels
+    return y, yh, x, xw
 
 
-def analyze_image(img, cluster=3):
-    # https://docs.opencv.org/3.0-beta/doc/py_tutorials/py_ml/py_kmeans/py_kmeans_opencv/py_kmeans_opencv.html
-    Z = img.reshape((-1, 3))
+def create_image_tiles(image_path, debug=False):
+    # read image
+    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
 
-    # convert to np.float32
-    Z = np.float32(Z)
+    # get dimensions of image
+    dimensions = img.shape
 
-    # define criteria, number of clusters(K) and apply kmeans()
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-    K = cluster
-    ret, label, center = cv2.kmeans(
-        Z, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    # height, width, number of channels in image
+    height = img.shape[0]
+    width = img.shape[1]
+    channels = img.shape[2] if len(img.shape) > 2 else -1
 
-    # Now convert back into uint8, and make original image
-    center = np.uint8(center)
-    res = center[label.flatten()]
-    res2 = res.reshape((img.shape))
+    # map lon + lat to pixel dimensions
+    longitude_size = int(width / 360)
+    latitude_size = int(height / 180)
+    grid_dict = {}
 
-    return res2
+    if debug:
+        print('Image Dimension    : ', dimensions)
+        print('Image Height       : ', height)
+        print('Image Width        : ', width)
+        print('Number of Channels : ', channels)
+        print('lon size : ', longitude_size)
+        print('lat size : ', latitude_size)
+
+    for latitude in range(-90, 90):
+        for longitude in range(-180, 180):
+            # get lonlat tile
+            # https://stackoverflow.com/questions/9084609/
+            y, yh, x, xw = get_crop_rect(
+                longitude, latitude, longitude_size, latitude_size, img.shape)
+
+            crop_img = img[y:yh, x:xw]
+
+            grid_dict[str(longitude) + ',' + str(latitude)] = crop_img
+
+    return grid_dict
 
 
-def get_elevation_tile_from_web(bounds=(0, 0, 1, 1), output='0_0-DEM.tif'):
-    # bounds -122.6 41.15 -121.9 41.6 (lon, lat lon lat) (bottom,left to top,right)
-    filename = str(Path().absolute()) + '/' + output
-    elevation.clip(bounds=bounds, output=filename)
+def get_image_data():
+    # Tile reference https://visibleearth.nasa.gov/grid
+    http = urllib3.PoolManager()
+    to_download = [
+        {'name': 'heightmap.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'},
+        {'name': 'blue_marble.png',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x10800.png'},
+        {'name': 'heightmap_A1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A1_grey_geo.tif'},
+        {'name': 'heightmap_A2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A2_grey_geo.tif'},
+        {'name': 'heightmap_B1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B1_grey_geo.tif'},
+        {'name': 'heightmap_B2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B2_grey_geo.tif'},
+        {'name': 'heightmap_C1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C1_grey_geo.tif'},
+        {'name': 'heightmap_C2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C2_grey_geo.tif'},
+        {'name': 'heightmap_D1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D1_grey_geo.tif'},
+        {'name': 'heightmap_D2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D2_grey_geo.tif'},
+    ]
 
-    return filename
+    for el in to_download:
+        r = http.request('GET', el['url'], preload_content=False)
+        length = int(r.getheader('content-length'))
+        size_mb = length / 1024 / 1024
+
+        print('Start downloading ' + el['name'] +
+              ' (' + str(round(size_mb, 2)) + 'MB)')
+
+        with open('./image_data/' + el['name'], 'wb') as out:
+            while True:
+                data = r.read()
+                if not data:
+                    break
+                out.write(data)
+
+        r.release_conn()
+
+
+def merge_tif_tiles():
+    # file_list = glob.glob("c:\data\....\*.tif")
+
+    # files_string = " ".join(file_list)
+
+    # command = "gdal_merge.py -o output.tif -of gtiff " + files_string
+
+    # os.system(command)
+    return 0
+
+
+# ------------------------------------------------------- Generic Helper Methods
+def create_video(point_array):
+    FFMpegWriter = animation.writers['ffmpeg']
+    metadata = dict(title='GA Coords', artist='florianporada',
+                    comment='IOPS')
+    writer = FFMpegWriter(fps=25, metadata=metadata)
+    dt = datetime.now()
+
+    # basemap = Basemap(projection='mill', lon_0=0)
+    # basemap.drawcoastlines()
+    # basemap.drawmapboundary(fill_color='aqua')
+    # basemap.fillcontinents(color='coral', lake_color='aqua')
+
+    fig = plt.figure()
+
+    plt.xlim(-180, 180)
+    plt.ylim(-90, 90)
+    sct = plt.scatter(point_array[0][:, 0],
+                      point_array[0][:, 1], c='r')
+
+    with writer.saving(fig, "./output/genetic_coords_viz_" + dt.strftime("%s") + ".mp4", 300):
+        for i in range(len(point_array)):
+            curr_pop = point_array[i]
+            sct.set_offsets(curr_pop)
+
+            for i in range(2):
+                writer.grab_frame()
+
+
+def show_grid_elements(elements):
+    fig, axs = plt.subplots()
+    axs.set_aspect('equal', 'datalim')
+
+    for key in elements:
+        el = elements[key]
+
+        if not el.is_empty:
+            if el.geom_type == 'MultiPolygon':
+                for geom in el.geoms:
+                    xs, ys = geom.exterior.xy
+                    axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
+
+            if el.geom_type == 'Polygon':
+                xs, ys = el.exterior.xy
+                axs.fill(xs, ys, alpha=0.5, c=np.random.rand(3,))
+
+    # for geom in land.geoms:
+    #     xs, ys = geom.exterior.xy
+    #     axs.fill(xs, ys, alpha=0.5, fc='r', ec='none')
+
+    plt.show()
