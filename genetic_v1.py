@@ -17,6 +17,12 @@ import random
 import sys
 import cv2
 import urllib3
+from sklearn.cluster import KMeans
+from collections import Counter
+from osgeo import gdal
+
+from helper import get_image, RGB2HEX, get_dominant_color, get_elevation_tile_from_web
+
 
 # Info:
 # GeoJson: [lng, lat]
@@ -397,12 +403,50 @@ population_history = [population]
 current_population_closest_distances = []
 
 # get_image_data()
-# tiles = create_image_tiles('./image_data/blue_marble.png')
+tiles = create_image_tiles('./image_data/heightmap.png')
 
-# test_img = tiles['-92,-1']
-# cv2.imshow('image -92,-1', test_img)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
+test_img = tiles['-122,41']
+cv2.imshow('image', test_img)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# img = tiles['13,0']
+
+
+elevation_file = get_elevation_tile_from_web(
+    (-122, 41, -121, 42), 'image_data/-122_41_DEM.tif')
+gtif = gdal.Open(elevation_file)
+srcband = gtif.GetRasterBand(1)
+
+# Get raster statistics
+stats = srcband.GetStatistics(True, True)
+
+# Print the min, max, mean, stdev based on stats index
+print("[ STATS ] =  Minimum=%.3f, Maximum=%.3f, Mean=%.3f, StdDev=%.3f" % (
+    stats[0], stats[1], stats[2], stats[3]))
+# test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2RGB)
+
+
+# modified_image = test_img.reshape(
+#     test_img.shape[0]*test_img.shape[1], 1)
+
+# clf = KMeans(n_clusters=4)
+# labels = clf.fit_predict(modified_image)
+
+# counts = Counter(labels)
+
+# center_colors = clf.cluster_centers_
+# # We get ordered colors by iterating through the keys
+# ordered_colors = [center_colors[i] for i in counts.keys()]
+# hex_colors = [RGB2HEX(ordered_colors[i]) for i in counts.keys()]
+# rgb_colors = [ordered_colors[i] for i in counts.keys()]
+
+# plt.figure(figsize=(8, 6))
+# plt.pie(counts.values(), labels=hex_colors, colors=hex_colors)
+
+# plt.show()
+
+exit()
 
 # -------------------------- Execution
 for generation in range(max_generations):
@@ -426,7 +470,7 @@ for generation in range(max_generations):
     # Simple: all fitnesses summed and divided by amount of constraints
     # TODO: weighted fitness function
     for chromosome_index in range(0, population_size - 1):
-        # Transform min_city_distance and max_city_distance to 0 and 1
+        # Transform min_city_distance and max_city_distance to 0 - 1
         fitness_distance = constraint_raw_data[chromosome_index]['constraint_distance'] * \
             100 / max_city_distance / 100
 
