@@ -6,7 +6,7 @@ import os
 import pickle
 import random
 
-from helper import get_image, RGB2HEX, create_image_tiles, create_video
+from helper import get_image, RGB2HEX, create_image_tiles, create_video, plot_population
 from image import get_dominant_color
 from geo import get_haversine_distance, is_in_shape, get_elevation_tile_from_web, get_cities, get_map_shape, create_grid_elements
 
@@ -50,6 +50,8 @@ def get_closest_city(point, cities):
 
 # -------------------------- GA Code
 def get_constraint_data(point):
+    if point[0] > 180 or point[0] < -180:
+        print(point)
     grid_element_key = str(math.floor(
         point[0])) + "," + str(math.floor(point[1]))
 
@@ -62,7 +64,7 @@ def get_constraint_data(point):
     return {
         'constraint_ocean': in_ocean,
         'constraint_distance': distance,
-        'constraints_height': 0,
+        'constraint_height': 0,
         'constraint_health': 0,
     }
 
@@ -72,15 +74,21 @@ def generate_initial_population(individuals, chromosome_length):
     initial_population = np.random.uniform(low=-90, high=90, size=pop_size)
     initial_population[:, 0] *= 2
 
-    print("initial population:")
-    print(initial_population)
+    if debug:
+        print("initial population:")
+        print(initial_population)
 
     return initial_population
 
 
-def select_elite_chromosome(population, scores):
-    # TODO: get n top performers of the current generation
-    return [0, 0]
+def select_elite_chromosomes(population, scores, amount=50):
+    highest_scoring_chromosomes = np.empty((amount, 2), dtype=np.float32)
+    highest_score_indexes = np.argsort(-1*scores, axis=None)[:amount]
+
+    for index in range(0, amount - 1):
+        highest_scoring_chromosomes[index] = population[highest_score_indexes[index]]
+
+    return highest_scoring_chromosomes
 
 
 def select_individual_by_tournament(population, scores):
@@ -88,8 +96,8 @@ def select_individual_by_tournament(population, scores):
     population_size = len(scores)
 
     # Pick individuals for tournament
-    fighter_1 = random.randint(0, population_size-1)
-    fighter_2 = random.randint(0, population_size-1)
+    fighter_1 = random.randint(0, population_size - 1)
+    fighter_2 = random.randint(0, population_size - 1)
 
     # Get fitness score for each
     fighter_1_fitness = scores[fighter_1]
@@ -111,7 +119,7 @@ def breed_by_crossover(parent_1, parent_2):
     chromosome_length = len(parent_1)
 
     # Pick crossover point, avoding ends of chromsome
-    crossover_point = random.randint(1, chromosome_length-1)
+    crossover_point = random.randint(1, chromosome_length - 1)
 
     # Create children. np.hstack joins two arrays
     child_1 = np.hstack((parent_1[0:crossover_point],
@@ -167,10 +175,13 @@ with open('geodata/processed_map_elements.pkl', 'rb') as fp:
 
 
 # -------------------------- GA parameter
+# Note: population_size & max_elite_chromosomes have to be even amounts
 population_size = 1000  # amount of coords
 chromosome_length = 2  # coords (lon, lat)
-max_generations = 50
-mutation_rate = 0.002
+max_elite_chromosomes = 50  # chromosomes to be taken into the next generation
+max_generations = 50  # amount of iterations
+mutation_rate = 0.002  # Rate of how the new population will be mutated
+
 
 population = generate_initial_population(population_size, chromosome_length)
 population_history = [population]
@@ -253,7 +264,7 @@ for generation in range(max_generations):
         fitness_ocean = el['constraint_ocean']
 
         fitness[chromosome_index] = (
-            fitness_distance + fitness_ocean) / len(el.keys())
+            fitness_distance + fitness_ocean) / 2
 
     max_fitness = np.max(fitness)
     max_fit_index = np.where(fitness == np.max(fitness))[0][0]
@@ -268,8 +279,12 @@ for generation in range(max_generations):
     new_population = []
     current_population_closest_distances = []
 
+    elite_chromosomes = select_elite_chromosomes(
+        population, fitness, amount=max_elite_chromosomes)
+
     # Create new popualtion generating two children at a time
-    for i in range(int(population_size / 2)):
+    # only create children of the amount of: population_size - max_elite_chromosomes children
+    for i in range(int((population_size - max_elite_chromosomes) / 2)):
         parent_1 = select_individual_by_tournament(population, fitness)
         parent_2 = select_individual_by_tournament(population, fitness)
 
@@ -279,7 +294,7 @@ for generation in range(max_generations):
         new_population.append(child_2)
 
     # Replace the old population with the new one
-    population = np.array(new_population)
+    population = np.concatenate((np.array(new_population), elite_chromosomes))
 
     # Apply mutation
     population = randomly_mutate_population(population, mutation_rate)
@@ -309,4 +324,16 @@ print("...")
 
 print("==================================================")
 print("Create Video")
-create_video(population_history)
+top_points_indexes = np.argsort(-1*fitness, axis=None)[:10]
+top_points_fitness = fitness[top_points_indexes].flatten()
+top_combined = np.vstack((top_points_indexes, top_points_fitness))
+
+# create_video(population_history, top_combined)
+
+print("==================================================")
+print("Show last population")
+top_points_indexes = np.argsort(-1*fitness, axis=None)[:len(fitness) - 1]
+top_points_fitness = fitness[top_points_indexes].flatten()
+top_combined = np.vstack((top_points_indexes, top_points_fitness))
+
+plot_population(population, top_combined)

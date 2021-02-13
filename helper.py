@@ -6,6 +6,7 @@ import urllib3
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 from datetime import datetime
+import cartopy.crs as ccrs
 
 
 def RGB2HEX(color):
@@ -128,7 +129,7 @@ def merge_tif_tiles():
 
 
 # ------------------------------------------------------- Generic Helper Methods
-def create_video(point_array):
+def create_video(point_array, details=None):
     FFMpegWriter = animation.writers['ffmpeg']
     metadata = dict(title='GA Coords', artist='florianporada',
                     comment='IOPS')
@@ -140,20 +141,54 @@ def create_video(point_array):
     # basemap.drawmapboundary(fill_color='aqua')
     # basemap.fillcontinents(color='coral', lake_color='aqua')
 
-    fig = plt.figure()
+    fig = plt.figure(figsize=(18, 9))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    ax.stock_img()
+    ax.coastlines()
+    ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
 
     plt.xlim(-180, 180)
     plt.ylim(-90, 90)
-    sct = plt.scatter(point_array[0][:, 0],
-                      point_array[0][:, 1], c='r')
 
-    with writer.saving(fig, "./output/genetic_coords_viz_" + dt.strftime("%s") + ".mp4", 300):
+    sct = plt.scatter(point_array[0][:, 0],
+                      point_array[0][:, 1], c='r', s=12)
+
+    with writer.saving(fig, "./output/genetic_coords_viz_" + dt.strftime("%m_%d_%Y__%H_%M_%S") + ".mp4", 300):
         for i in range(len(point_array)):
             curr_pop = point_array[i]
             sct.set_offsets(curr_pop)
 
+            if details is not None and i == len(point_array) - 1:
+                print('Add detail data label')
+                for ii, fitness_index in enumerate(details[0]):
+                    plt.plot(curr_pop[int(details[0][0])][0],
+                             curr_pop[int(details[0][0])][1], 'bo', markersize=15)
+                    ax.annotate(
+                        f'{details[1][ii]:.4f}', (curr_pop[int(fitness_index)][0], curr_pop[int(fitness_index)][1]))
+
             for i in range(2):
                 writer.grab_frame()
+
+
+def plot_population(population, details):
+    fig = plt.figure(figsize=(18, 9))
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    ax.coastlines()
+    ax.stock_img()  # Background images ref http://earthpy.org/tag/cartopy.html
+    ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
+
+    plt.xlim(-180, 180)
+    plt.ylim(-90, 90)
+    plt.scatter(population[:, 0],
+                population[:, 1], c='r', s=12)
+
+    for ii, fitness_index in enumerate(details[0]):
+        plt.plot(population[int(details[0][0])][0],
+                 population[int(details[0][0])][1], 'bo', markersize=15)
+        ax.annotate(
+            f'{details[1][ii]:.4f}', (population[int(fitness_index)][0], population[int(fitness_index)][1]))
+
+    plt.show()
 
 
 def show_grid_elements(elements):

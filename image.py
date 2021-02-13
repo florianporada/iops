@@ -25,6 +25,7 @@ def analyze_image(img, cluster=3):
 
 
 def get_dominant_color(img, clusters=3, show=False):
+    # https://gist.github.com/skt7/71044f42f9323daec3aa035cd050884e
     # convert to rgb from bgr
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
