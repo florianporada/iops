@@ -1,3 +1,4 @@
+import os
 import cv2
 from pathlib import Path
 from sklearn.cluster import KMeans
@@ -7,6 +8,12 @@ import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 from datetime import datetime
 import cartopy.crs as ccrs
+import requests
+from oauthlib.oauth2 import BackendApplicationClient
+from requests_oauthlib import OAuth2Session
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def RGB2HEX(color):
@@ -74,47 +81,68 @@ def create_image_tiles(image_path, debug=False):
     return grid_dict
 
 
-def get_image_data():
-    # Tile reference https://visibleearth.nasa.gov/grid
-    http = urllib3.PoolManager()
-    to_download = [
-        {'name': 'heightmap.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'},
-        {'name': 'blue_marble.png',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x10800.png'},
-        {'name': 'heightmap_A1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A1_grey_geo.tif'},
-        {'name': 'heightmap_A2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A2_grey_geo.tif'},
-        {'name': 'heightmap_B1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B1_grey_geo.tif'},
-        {'name': 'heightmap_B2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B2_grey_geo.tif'},
-        {'name': 'heightmap_C1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C1_grey_geo.tif'},
-        {'name': 'heightmap_C2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C2_grey_geo.tif'},
-        {'name': 'heightmap_D1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D1_grey_geo.tif'},
-        {'name': 'heightmap_D2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D2_grey_geo.tif'},
-    ]
+def get_sentinelhub_token():
+    # curl --request POST --url https://services.sentinel-hub.com/oauth/token --header "content-type: application/x-www-form-urlencoded" --data "grant_type=client_credentials&client_id=<your client id>" --data-urlencode "client_secret=<your client secret>"
+    # Your client credentials
+    client_id = os.environ.get('SENTINELHUB_CLIENT_ID')
+    client_secret = os.environ.get('SENTINELHUB_CLIENT_SECRET')
+    # Create a session
+    client = BackendApplicationClient(client_id=client_id)
+    oauth = OAuth2Session(client=client)
+    # Get token for the session
+    token = oauth.fetch_token(token_url='https://services.sentinel-hub.com/oauth/token',
+                              client_id=client_id, client_secret=client_secret)
 
-    for el in to_download:
-        r = http.request('GET', el['url'], preload_content=False)
-        length = int(r.getheader('content-length'))
-        size_mb = length / 1024 / 1024
+    print('Access Token', token)
+    # All requests using this session will have an access token automatically added
+    resp = oauth.get("https://services.sentinel-hub.com/oauth/tokeninfo")
+    print(resp.content)
 
-        print('Start downloading ' + el['name'] +
-              ' (' + str(round(size_mb, 2)) + 'MB)')
 
-        with open('./image_data/' + el['name'], 'wb') as out:
-            while True:
-                data = r.read()
-                if not data:
-                    break
-                out.write(data)
+def get_seninel_data(bbox):
+    access_token = os.environ.get('SENTINELHUB_ACCESS_TOKEN')
+    response = requests.post('https://services.sentinel-hub.com/api/v1/process',
+                             headers={
+                                 "Authorization": f"Bearer {access_token}"},
+                             json={
+                                 "input": {
+                                     "bounds": {
+                                         "bbox": [
+                                             13.822174072265625,
+                                             45.85080395917834,
+                                             14.55963134765625,
+                                             46.29191774991382
+                                         ]
+                                     },
+                                     "data": [{
+                                         "type": "S2L2A"
+                                     }]
+                                 },
+                                 "evalscript": """
+                                //VERSION=3
 
-        r.release_conn()
+                                function setup() {
+                                    return {
+                                        input: ["B02", "B03", "B04"],
+                                        output: {
+                                        bands: 3
+                                        }
+                                    };
+                                }
+
+                                function evaluatePixel(
+                                    sample,
+                                    scenes,
+                                    inputMetadata,
+                                    customData,
+                                    outputMetadata
+                                ) {
+                                    return [2.5 * sample.B04, 2.5 * sample.B03, 2.5 * sample.B02];
+                                }
+                                """
+                             })
+
+    print(response)
 
 
 def merge_tif_tiles():
@@ -211,5 +239,20 @@ def show_grid_elements(elements):
     # for geom in land.geoms:
     #     xs, ys = geom.exterior.xy
     #     axs.fill(xs, ys, alpha=0.5, fc='r', ec='none')
+
+    plt.show()
+
+
+def show_polygon_on_map(polygon):
+    x, y = polygon.exterior.xy
+
+    fig = plt.figure(1, figsize=(10, 5), dpi=90)
+    ax = fig.add_subplot(111)
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    ax.coastlines()
+    ax.stock_img()
+    ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
+    ax.plot(x, y)
+    ax.set_title('Polygon Edges')
 
     plt.show()

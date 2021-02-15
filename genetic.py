@@ -156,20 +156,6 @@ bedrock = 'ufff'
 # -------------------------- Prepare data
 pkl_file = Path("geodata/processed_map_elements.pkl")
 
-if not Path('geodata/').is_dir():
-    os.mkdir('geodata/')
-
-if not pkl_file.is_file():
-    # land = get_map_shape('geodata/ne_10m_land/ne_10m_land.shp',
-    #                      simplify=False, tolerance=5)
-    oceans = get_map_shape(
-        'geodata/ne_10m_ocean_scale_rank/ne_10m_ocean_scale_rank.shp', simplify=False, tolerance=0.5)
-    print("Did not find processed map")
-    grid_elements = create_grid_elements(oceans)
-
-    with open('geodata/processed_map_elements.pkl', 'wb') as fp:
-        pickle.dump(grid_elements, fp, pickle.HIGHEST_PROTOCOL)
-
 with open('geodata/processed_map_elements.pkl', 'rb') as fp:
     grid_elements = pickle.load(fp)
 
