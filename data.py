@@ -1,8 +1,10 @@
 import os
 
+from pathlib import Path
 import urllib3
 import pickle
-from pathlib import Path
+import _pickle as cPickle
+import bz2
 
 from geo import get_map_shape, create_grid_elements
 
@@ -63,3 +65,16 @@ def save_intersection_tiles(filename='geodata/ne_10m_ocean_scale_rank/ne_10m_oce
 
         with open('geodata/processed_map_elements.pkl', 'wb') as fp:
             pickle.dump(grid_elements, fp, pickle.HIGHEST_PROTOCOL)
+
+
+def compressed_pickle(title, data):
+    # save as .pbz2
+    with bz2.BZ2File(f'{title}', 'wb') as fp:
+        cPickle.dump(data, fp, pickle.HIGHEST_PROTOCOL)
+
+
+def decompress_pickle(file):
+    data = bz2.BZ2File(file, 'rb')
+    data = cPickle.load(data)
+
+    return data

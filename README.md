@@ -11,9 +11,10 @@ This repository tracks the progress (since the git history broke) of a project w
 The current approach is to use a genetic algorithm that finds the optimal coordinates on planet earth.
 Thie fitness function test the coordinates on the following aspects:
 
-- nearest city with a minimum population of n (n = depends on the dataset used during execution)
-- if the location is in the ocean or on land
-- bedrock formation of the location (this data remains patchy and maybe will be swapped)
+- Nearest city with a minimum population of n (n = depends on the dataset used during execution)
+- If the location is in the ocean or on land
+- Vegetation state based on [Sentinel 2](https://sentinel.esa.int/web/sentinel/missions/sentinel-2) data
+- Eleveation data
 
 ## How it works
 
@@ -21,4 +22,4 @@ Thie fitness function test the coordinates on the following aspects:
 
 ## Author
 
-Florian Porada
+[Florian Porada](https://florianporada.com)

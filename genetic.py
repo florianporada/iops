@@ -5,16 +5,15 @@ import numpy as np
 import os
 import pickle
 import random
+import warnings
 
 from helper import get_image, RGB2HEX, create_image_tiles, create_video, plot_population
 from image import get_dominant_color
-from geo import get_haversine_distance, is_in_shape, get_elevation_tile_from_web, get_cities, get_map_shape, create_grid_elements
+from geo import get_haversine_distance, is_in_shape, get_elevation_tile_from_web, get_cities, get_map_shape, create_grid_elements, get_optimized_tile_meta
+from data import compressed_pickle, decompress_pickle
 
 
-# Info:
-# GeoJson: [lng, lat]
-# x y ~ lng lat
-
+warnings.simplefilter(action='ignore', category=FutureWarning)
 debug = False
 
 
@@ -48,24 +47,40 @@ def get_closest_city(point, cities):
     return closest_city['city_distance']
 
 
+def evaluate_health(point, tile):
+    tile_meta = get_optimized_tile_meta(point, tile)
+
+    # Assume that no vegetationindex or no data means there is no vegetation -> which is good
+    if tile_meta.empty:
+        return 1
+
+    return 1 - (float(tile_meta['vegetationpercentage']) / 100)
+
+
 # -------------------------- GA Code
-def get_constraint_data(point):
+def get_constraint_data(point, datasets):
     if point[0] > 180 or point[0] < -180:
         print(point)
     grid_element_key = str(math.floor(
         point[0])) + "," + str(math.floor(point[1]))
 
+    cities = datasets['cities']
+    ocean_grid_elements = datasets['ocean_grid_elements']
+    sentinel_row_tiles = datasets['sentinel_row_tiles']
+
     # evaluate by distance
     distance = get_closest_city(point, cities)
 
     # 0 = point is the water (bad), 1 = not in water (good)
-    in_ocean = is_in_shape(point, grid_elements[grid_element_key])
+    in_ocean = is_in_shape(point, ocean_grid_elements[grid_element_key])
+
+    # If vegetationpercentage is high, give it a bad fitness
+    health = evaluate_health(point, sentinel_row_tiles[grid_element_key])
 
     return {
         'constraint_ocean': in_ocean,
         'constraint_distance': distance,
-        'constraint_height': 0,
-        'constraint_health': 0,
+        'constraint_health': health,
     }
 
 
@@ -147,19 +162,6 @@ def randomly_mutate_population(population, mutation_probability):
     return population
 
 
-# -------------------------- Load data
-cities_file = 'geodata/cities_pop_5000000.geojson'
-cities = get_cities(cities_file)
-bedrock = 'ufff'
-
-
-# -------------------------- Prepare data
-pkl_file = Path("geodata/processed_map_elements.pkl")
-
-with open('geodata/processed_map_elements.pkl', 'rb') as fp:
-    grid_elements = pickle.load(fp)
-
-
 # -------------------------- GA parameter
 # Note: population_size & max_elite_chromosomes have to be even amounts
 population_size = 1000  # amount of coords
@@ -219,107 +221,146 @@ current_population_closest_distances = []
 
 # exit()
 
-# -------------------------- Execution
-for generation in range(max_generations):
-    print(str(datetime.now()) + " Generation #" + str(generation))
+def start():
+    # -------------------------- Load data
+    cities_file = 'geodata/cities_pop_5000000.geojson'
+    cities = get_cities(cities_file)
+    bedrock = 'ufff'
 
-    # get the fitnesses of all chromosomes in generation
-    constraint_raw_data = []
-    fitness = np.empty((population_size, 1))
-    for chromosome_index in range(0, population_size - 1):
-        constraint_raw_data.append(get_constraint_data(
-            population[chromosome_index]))
+    # -------------------------- Prepare data
+    pkl_file = Path("geodata/processed_map_elements.pkl")
 
-    # Get distance delta form percentage transformation
-    max_city_distance = np.max(np.asarray(
-        current_population_closest_distances))
-    min_city_distance = np.min(np.asarray(
-        current_population_closest_distances))
-    delta = max_city_distance - min_city_distance
+    with open('geodata/processed_map_elements.pkl', 'rb') as fp:
+        ocean_grid_elements = pickle.load(fp)
 
-    # Calculate combined fitness
-    # Simple: all fitnesses summed and divided by amount of constraints
-    # TODO: weighted fitness function
-    for chromosome_index in range(0, population_size - 1):
-        el = constraint_raw_data[chromosome_index]
-        # Transform min_city_distance and max_city_distance to 0 - 1
-        fitness_distance = el['constraint_distance'] * \
-            100 / max_city_distance / 100
+    sentinel_row_tiles = {}
+    for row_index in range(-90, 90):
+        print(f'Loading row {row_index} into dict')
+        file_path = f'./geodata/sentinel_2_2020_07_01_to_2020_08_31_compressed/row_{row_index}.pbz2'
+        data = decompress_pickle(file_path)
 
-        # Fitness for ocean check 1 or 0
-        fitness_ocean = el['constraint_ocean']
+    sentinel_row_tiles.update(data)
+    # -------------------------- Execution
+    for generation in range(max_generations):
+        print(str(datetime.now()) + " Generation #" + str(generation))
 
-        fitness[chromosome_index] = (
-            fitness_distance + fitness_ocean) / 2
+        # get the fitnesses of all chromosomes in generation
+        constraint_raw_data = []
+        fitness = np.empty((population_size, 1))
+        constraint_datasets = {
+            'cities': cities,
+            'ocean_grid_elements': ocean_grid_elements,
+            'sentinel_row_tiles': sentinel_row_tiles
+        }
 
-    max_fitness = np.max(fitness)
-    max_fit_index = np.where(fitness == np.max(fitness))[0][0]
+        for chromosome_index in range(0, population_size - 1):
+            constraint_raw_data.append(get_constraint_data(
+                population[chromosome_index], constraint_datasets))
 
-    if debug:
-        print("fitness: ")
-        print(fitness)
-        print("max_fitness:")
-        print(np.max(fitness))
+        # Get distance delta form percentage transformation
+        max_city_distance = np.max(np.asarray(
+            current_population_closest_distances))
+        min_city_distance = np.min(np.asarray(
+            current_population_closest_distances))
+        delta = max_city_distance - min_city_distance
 
-    # Create an empty list for new population
-    new_population = []
-    current_population_closest_distances = []
+        # Calculate combined fitness
+        # Simple: all fitnesses summed and divided by amount of constraints
+        # TODO: weighted fitness function
+        for chromosome_index in range(0, population_size - 1):
+            el = constraint_raw_data[chromosome_index]
+            constraintCount = len(el)
 
-    elite_chromosomes = select_elite_chromosomes(
-        population, fitness, amount=max_elite_chromosomes)
+            # Transform min_city_distance and max_city_distance to 0 - 1
+            fitness_distance = el['constraint_distance'] * \
+                100 / max_city_distance / 100
 
-    # Create new popualtion generating two children at a time
-    # only create children of the amount of: population_size - max_elite_chromosomes children
-    for i in range(int((population_size - max_elite_chromosomes) / 2)):
-        parent_1 = select_individual_by_tournament(population, fitness)
-        parent_2 = select_individual_by_tournament(population, fitness)
+            # Fitness for ocean check 1 or 0
+            fitness_ocean = el['constraint_ocean']
 
-        child_1, child_2 = breed_by_crossover(parent_1, parent_2)
+            # Fitness for health/vegetation
+            fitness_health = el['constraint_health']
 
-        new_population.append(child_1)
-        new_population.append(child_2)
+            fitness[chromosome_index] = (
+                fitness_distance + fitness_ocean + fitness_health) / constraintCount
 
-    # Replace the old population with the new one
-    population = np.concatenate((np.array(new_population), elite_chromosomes))
+        max_fitness = np.max(fitness)
+        max_fit_index = np.where(fitness == np.max(fitness))[0][0]
 
-    # Apply mutation
-    population = randomly_mutate_population(population, mutation_rate)
-    population_history.append(population)
+        if debug:
+            print("fitness: ")
+            print(fitness)
+            print("max_fitness:")
+            print(np.max(fitness))
 
-    if debug:
-        print("population:")
-        print(population)
+        # Create an empty list for new population
+        new_population = []
+        current_population_closest_distances = []
 
-best_result = population[max_fit_index]
+        elite_chromosomes = select_elite_chromosomes(
+            population, fitness, amount=max_elite_chromosomes)
 
-print("==================================================")
-print("Result")
-print("Best chromosome: " + str(best_result))
-print("Fitness: " + str(max_fitness))
-print("https://www.google.com/maps/search/?api=1&query=" +
-      str(best_result[1]) + "," + str(best_result[0]))
-print("==================================================")
-print("Data")
-print("Cities: " + cities_file)
-print("...")
+        # Create new popualtion generating two children at a time
+        # only create children of the amount of: population_size - max_elite_chromosomes children
+        for i in range(int((population_size - max_elite_chromosomes) / 2)):
+            parent_1 = select_individual_by_tournament(population, fitness)
+            parent_2 = select_individual_by_tournament(population, fitness)
+
+            child_1, child_2 = breed_by_crossover(parent_1, parent_2)
+
+            new_population.append(child_1)
+            new_population.append(child_2)
+
+        # Replace the old population with the new one
+        population = np.concatenate(
+            (np.array(new_population), elite_chromosomes))
+
+        # Apply mutation
+        population = randomly_mutate_population(population, mutation_rate)
+        population_history.append(population)
+
+        if debug:
+            print("population:")
+            print(population)
+
+    best_result = population[max_fit_index]
+
+    print("==================================================")
+    print("Result")
+    print("Best chromosome: " + str(best_result))
+    print("Fitness: " + str(max_fitness))
+    print("https://www.google.com/maps/search/?api=1&query=" +
+          str(best_result[1]) + "," + str(best_result[0]))
+    print("==================================================")
+    print("Data")
+    print("Cities: " + cities_file)
+    print("...")
+
+    # [-160.42666633  -47.61328754] - new
+    # [-160.58738847  -47.35714332] - maurice
+    # Best chromosome: [150.38105895 -79.62562572]
+
+    print("==================================================")
+    print("Create Video")
+    top_points_indexes = np.argsort(-1*fitness, axis=None)[:10]
+    top_points_fitness = fitness[top_points_indexes].flatten()
+    top_combined = np.vstack((top_points_indexes, top_points_fitness))
+
+    # create_video(population_history, top_combined)
+
+    print("==================================================")
+    print("Show last population")
+    top_points_indexes = np.argsort(-1*fitness, axis=None)[:len(fitness) - 1]
+    top_points_fitness = fitness[top_points_indexes].flatten()
+    top_combined = np.vstack((top_points_indexes, top_points_fitness))
+
+    plot_population(population, top_combined)
 
 
-# [-160.42666633  -47.61328754] - new
-# [-160.58738847  -47.35714332] - maurice
-# Best chromosome: [150.38105895 -79.62562572]
+if __name__ == "__main__":
+    print('Start Atomic Tomb Finder')
+    # Info:
+    # GeoJson: [lng, lat]
+    # x y ~ lng lat
 
-print("==================================================")
-print("Create Video")
-top_points_indexes = np.argsort(-1*fitness, axis=None)[:10]
-top_points_fitness = fitness[top_points_indexes].flatten()
-top_combined = np.vstack((top_points_indexes, top_points_fitness))
-
-# create_video(population_history, top_combined)
-
-print("==================================================")
-print("Show last population")
-top_points_indexes = np.argsort(-1*fitness, axis=None)[:len(fitness) - 1]
-top_points_fitness = fitness[top_points_indexes].flatten()
-top_combined = np.vstack((top_points_indexes, top_points_fitness))
-
-plot_population(population, top_combined)
+    start()
