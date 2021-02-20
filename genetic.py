@@ -15,6 +15,7 @@ from data import compressed_pickle, decompress_pickle
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 debug = False
+initialize_data = False
 
 
 def get_closest_city(point, cities):
@@ -98,18 +99,21 @@ def get_constraint_data(point):
         point[0])) + "," + str(math.floor(point[1]))
 
     # evaluate by distance
+    print(f'{str(datetime.now())} Calc constraint: city')
     distance = get_closest_city(point, cities)
 
     # 0 = point is the water (bad), 1 = not in water (good)
+    print(f'{str(datetime.now())} Calc constraint: ocean')
     in_ocean = is_in_shape(point, ocean_grid_elements[grid_element_key])
 
     # If vegetationpercentage is high, give it a bad fitness
+    print(f'{str(datetime.now())} Calc constraint: vegetation')
     vegetation = evaluate_vegetation(
         point, sentinel_row_tiles[grid_element_key])
 
     # Elevation from coord. ATM heigher = better?
-    elevation = evaluate_vegetation(
-        point, sentinel_row_tiles[grid_element_key])
+    print(f'{str(datetime.now())} Calc constraint: city')
+    elevation = get_elevation_from_coords(point)
 
     return {
         'constraint_ocean': in_ocean,
@@ -197,6 +201,7 @@ def randomly_mutate_population(population, mutation_probability):
     return population
 
 
+# -------------------------- GA
 print(f'{str(datetime.now())} Start Atomic Tomb Finder')
 # Info:
 # GeoJson: [lng, lat]
