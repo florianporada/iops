@@ -11,7 +11,6 @@ import fiona
 import json
 from osgeo import gdal
 import numpy as np
-import elevation
 from datetime import datetime, date
 from dotenv import load_dotenv
 import pickle
@@ -58,14 +57,6 @@ def get_cities(filename='geodata/cities_pop_10000000.geojson'):
     print("Loaded " + str(len(cities)) + " city coordinates")
 
     return cities
-
-
-def get_elevation_tile_from_web(bounds=(0, 0, 1, 1), output='0_0-DEM.tif'):
-    # bounds -122.6 41.15 -121.9 41.6 (lon, lat lon lat) (bottom,left to top,right)
-    filename = str(Path().absolute()) + '/' + output
-    elevation.clip(bounds=bounds, output=filename)
-
-    return filename
 
 
 def create_grid_elements(shape):

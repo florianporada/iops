@@ -7,9 +7,9 @@ import pickle
 import random
 import warnings
 
-from helper import get_image, RGB2HEX, create_image_tiles, create_video, plot_population
+from helper import get_image, RGB2HEX, create_image_tiles, create_video, plot_population, is_in_rect
 from image import get_dominant_color
-from geo import get_haversine_distance, is_in_shape, get_elevation_tile_from_web, get_cities, get_map_shape, create_grid_elements, get_optimized_tile_meta
+from geo import get_haversine_distance, is_in_shape, get_cities, get_map_shape, create_grid_elements, get_optimized_tile_meta
 from data import compressed_pickle, decompress_pickle
 
 
@@ -47,7 +47,7 @@ def get_closest_city(point, cities):
     return closest_city['city_distance']
 
 
-def evaluate_health(point, tile):
+def evaluate_vegetation(point, tile):
     tile_meta = get_optimized_tile_meta(point, tile)
 
     # Assume that no vegetationindex or no data means there is no vegetation -> which is good
@@ -57,10 +57,43 @@ def evaluate_health(point, tile):
     return 1 - (float(tile_meta['vegetationpercentage']) / 100)
 
 
+def get_elevation_from_coords(point):
+    # decide in which file to search
+    tile_a1 = {'bbox': [-180, 0, -90, 90], 'tif': 'heightmap_A1.tif'}
+    tile_a2 = {'bbox': [-180, -90, 90, 0], 'tif': 'heightmap_A2.tif'}
+    tile_b1 = {'bbox': [90, 0, 0, 90], 'tif': 'heightmap_B1.tif'}
+    tile_b2 = {'bbox': [-90, -90, 0, 0], 'tif': 'heightmap_B2.tif'}
+    tile_c1 = {'bbox': [0, 0, 90, 90], 'tif': 'heightmap_C1.tif'}
+    tile_c2 = {'bbox': [0, -90, 90, 0], 'tif': 'heightmap_C2.tif'}
+    tile_d1 = {'bbox': [90, 0, 180, 90], 'tif': 'heightmap_D1.tif'}
+    tile_d2 = {'bbox': [90, -90, 180, 0], 'tif': 'heightmap_D2.tif'}
+
+    tiles = [tile_a1, tile_a2, tile_b1, tile_b2,
+             tile_c1, tile_c2, tile_d1, tile_d2]
+
+    src = ''
+    result = 0
+
+    for tile in tiles:
+        if is_in_rect(point, tile['bbox']):
+            tif = tile['tif']
+            src = f'./image_data/{tif}'
+
+    if src != '':
+        result = os.popen(
+            f'gdallocationinfo -valonly -b 1 -geoloc -wgs84 {src} {point[0]} {point[1]}').read()
+
+    # Add elevation of chromosome for fitness evaluation
+    current_population_highest_elevations.append(result)
+
+    if debug:
+        print(f'Elevation for {point[0]},{point[1]}: {result}')
+
+    return float(result)
+
+
 # -------------------------- GA Code
 def get_constraint_data(point):
-    if point[0] > 180 or point[0] < -180:
-        print(point)
     grid_element_key = str(math.floor(
         point[0])) + "," + str(math.floor(point[1]))
 
@@ -71,12 +104,18 @@ def get_constraint_data(point):
     in_ocean = is_in_shape(point, ocean_grid_elements[grid_element_key])
 
     # If vegetationpercentage is high, give it a bad fitness
-    health = evaluate_health(point, sentinel_row_tiles[grid_element_key])
+    vegetation = evaluate_vegetation(
+        point, sentinel_row_tiles[grid_element_key])
+
+    # Elevation from coord. ATM heigher = better?
+    elevation = evaluate_vegetation(
+        point, sentinel_row_tiles[grid_element_key])
 
     return {
         'constraint_ocean': in_ocean,
         'constraint_distance': distance,
-        'constraint_health': health,
+        'constraint_vegetation': vegetation,
+        'constraint_elevation': elevation
     }
 
 
@@ -157,52 +196,6 @@ def randomly_mutate_population(population, mutation_probability):
     # Return mutation population
     return population
 
-# get_image_data()
-# tiles = create_image_tiles('./image_data/heightmap.png')
-
-# test_img = tiles['-122,41']
-# cv2.imshow('image', test_img)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
-
-# # img = tiles['13,0']
-
-
-# elevation_file = get_elevation_tile_from_web(
-#     (-122, 41, -121, 42), 'image_data/-122_41_DEM.tif')
-# gtif = gdal.Open(elevation_file)
-# srcband = gtif.GetRasterBand(1)
-
-# # Get raster statistics
-# stats = srcband.GetStatistics(True, True)
-
-# # Print the min, max, mean, stdev based on stats index
-# print("[ STATS ] =  Minimum=%.3f, Maximum=%.3f, Mean=%.3f, StdDev=%.3f" % (
-#     stats[0], stats[1], stats[2], stats[3]))
-# test_img = cv2.cvtColor(test_img, cv2.COLOR_BGR2RGB)
-
-
-# modified_image = test_img.reshape(
-#     test_img.shape[0]*test_img.shape[1], 1)
-
-# clf = KMeans(n_clusters=4)
-# labels = clf.fit_predict(modified_image)
-
-# counts = Counter(labels)
-
-# center_colors = clf.cluster_centers_
-# # We get ordered colors by iterating through the keys
-# ordered_colors = [center_colors[i] for i in counts.keys()]
-# hex_colors = [RGB2HEX(ordered_colors[i]) for i in counts.keys()]
-# rgb_colors = [ordered_colors[i] for i in counts.keys()]
-
-# plt.figure(figsize=(8, 6))
-# plt.pie(counts.values(), labels=hex_colors, colors=hex_colors)
-
-# plt.show()
-
-# exit()
-
 
 print(f'{str(datetime.now())} Start Atomic Tomb Finder')
 # Info:
@@ -221,6 +214,7 @@ population = generate_initial_population(
     population_size, chromosome_length)
 population_history = [population]
 current_population_closest_distances = []
+current_population_highest_elevations = []
 
 
 # -------------------------- Load data
@@ -230,6 +224,9 @@ cities = get_cities(cities_file)
 ocean_tile_file = 'geodata/processed_map_elements.pkl'
 with open(ocean_tile_file, 'rb') as fp:
     ocean_grid_elements = pickle.load(fp)
+
+height_map_file = './image_data/heightmap.png'
+height_tiles = create_image_tiles(height_map_file)
 
 sentinel_data_file = './geodata/sentinel_2_2020_07_01_to_2020_08_31_compressed'
 sentinel_row_tiles = {}
@@ -260,6 +257,9 @@ for generation in range(max_generations):
         current_population_closest_distances))
     delta = max_city_distance - min_city_distance
 
+    max_elevation = np.max(np.asarray(
+        current_population_highest_elevations))
+
     # Calculate combined fitness
     # Simple: all fitnesses summed and divided by amount of constraints
     # TODO: weighted fitness function
@@ -267,7 +267,7 @@ for generation in range(max_generations):
         el = constraint_raw_data[chromosome_index]
         constraintCount = len(el)
 
-        # Transform min_city_distance and max_city_distance to 0 - 1
+        # Transform min_city_distance and max_city_distance to 0 - 1 (percentage)
         fitness_distance = el['constraint_distance'] * \
             100 / max_city_distance / 100
 
@@ -275,10 +275,14 @@ for generation in range(max_generations):
         fitness_ocean = el['constraint_ocean']
 
         # Fitness for health/vegetation
-        fitness_health = el['constraint_health']
+        fitness_vegetation = el['constraint_vegetation']
+
+        # Transform max_elevation to 0 - 1 (percentage)
+        fitness_vegetation = el['constraint_vegetation'] * \
+            100 / max_elevation / 100
 
         fitness[chromosome_index] = (
-            fitness_distance + fitness_ocean + fitness_health) / constraintCount
+            fitness_distance + fitness_ocean + fitness_vegetation) / constraintCount
 
     max_fitness = np.max(fitness)
     max_fit_index = np.where(fitness == np.max(fitness))[0][0]
@@ -292,6 +296,7 @@ for generation in range(max_generations):
     # Create an empty list for new population
     new_population = []
     current_population_closest_distances = []
+    current_population_highest_elevations = []
 
     elite_chromosomes = select_elite_chromosomes(
         population, fitness, amount=max_elite_chromosomes)

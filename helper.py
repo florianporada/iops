@@ -42,6 +42,21 @@ def get_crop_rect(lon, lat, rect_width, rect_height, dimensions):
     return y, yh, x, xw
 
 
+def is_in_rect(point, bbox):
+    x = point[0]
+    y = point[1]
+
+    x1 = bbox[0]
+    y1 = bbox[1]
+    x2 = bbox[2]
+    y2 = bbox[3]
+
+    if x1 <= x <= x2 and y1 <= y <= y2:
+        return True
+
+    return False
+
+
 def create_image_tiles(image_path, debug=False):
     # read image
     img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)

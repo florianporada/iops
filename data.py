@@ -5,33 +5,61 @@ import urllib3
 import pickle
 import _pickle as cPickle
 import bz2
+import elevation
 
 from geo import get_map_shape, create_grid_elements
 
 
-def get_image_data():
+def get_elevation_tile_from_web(bounds=(0, 0, 1, 1), output='0_0-DEM.tif'):
+    # bounds -122.6 41.15 -121.9 41.6 (lon, lat lon lat) (bottom,left to top,right)
+    filename = str(Path().absolute()) + '/' + output
+    elevation.clip(bounds=bounds, output=filename)
+
+    return filename
+
+
+def get_height_image_data():
     # Tile reference https://visibleearth.nasa.gov/grid
+    # elevationio bounds: left bottom right top
+    # tile bounds: Upper left	Lower right
+    # {'name': 'heightmap.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'},
+    # {'name': 'blue_marble.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x10800.png'},
+
     http = urllib3.PoolManager()
     to_download = [
-        {'name': 'heightmap.png', 'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_21600x10800.png'},
-        {'name': 'blue_marble.png',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x10800.png'},
-        {'name': 'heightmap_A1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A1_grey_geo.tif'},
-        {'name': 'heightmap_A2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A2_grey_geo.tif'},
-        {'name': 'heightmap_B1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B1_grey_geo.tif'},
-        {'name': 'heightmap_B2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B2_grey_geo.tif'},
-        {'name': 'heightmap_C1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C1_grey_geo.tif'},
-        {'name': 'heightmap_C2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C2_grey_geo.tif'},
-        {'name': 'heightmap_D1.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D1_grey_geo.tif'},
-        {'name': 'heightmap_D2.tif',
-            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D2_grey_geo.tif'},
+        {
+            'name': 'heightmap_A1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A1_grey_geo.tif',
+            'bbox': []
+        },
+        {
+            'name': 'heightmap_A2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_A2_grey_geo.tif'
+        },
+        {
+            'name': 'heightmap_B1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B1_grey_geo.tif'
+        },
+        {
+            'name': 'heightmap_B2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_B2_grey_geo.tif'
+        },
+        {
+            'name': 'heightmap_C1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C1_grey_geo.tif'
+        },
+        {
+            'name': 'heightmap_C2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_C2_grey_geo.tif'
+        },
+        {
+            'name': 'heightmap_D1.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D1_grey_geo.tif'
+        },
+        {
+            'name': 'heightmap_D2.tif',
+            'url': 'https://eoimages.gsfc.nasa.gov/images/imagerecords/73000/73934/gebco_08_rev_elev_D2_grey_geo.tif'
+        },
     ]
 
     for el in to_download:
