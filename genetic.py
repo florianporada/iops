@@ -73,7 +73,7 @@ def get_elevation_from_coords(point):
              tile_c1, tile_c2, tile_d1, tile_d2]
 
     src = ''
-    result = 0
+    result = 0.0
 
     for tile in tiles:
         if is_in_rect(point, tile['bbox']):
@@ -82,7 +82,13 @@ def get_elevation_from_coords(point):
 
     if src != '':
         result = os.popen(
-            f'gdallocationinfo -valonly -b 1 -geoloc -wgs84 {src} {point[0]} {point[1]}').read()
+            f'gdallocationinfo -valonly -b 1 -wgs84 {src} {point[0]} {point[1]}').read()
+        try:
+            result = float(result)
+        except ValueError:
+            print(os.popen(
+                f'gdallocationinfo -b 1 -wgs84 {src} {point[0]} {point[1]}').read())
+            result = 0.0
 
     # Add elevation of chromosome for fitness evaluation
     current_population_highest_elevations.append(result)
@@ -90,7 +96,7 @@ def get_elevation_from_coords(point):
     if debug:
         print(f'Elevation for {point[0]},{point[1]}: {result}')
 
-    return float(result)
+    return result
 
 
 # -------------------------- GA Code
@@ -99,20 +105,16 @@ def get_constraint_data(point):
         point[0])) + "," + str(math.floor(point[1]))
 
     # evaluate by distance
-    print(f'{str(datetime.now())} Calc constraint: city')
     distance = get_closest_city(point, cities)
 
     # 0 = point is the water (bad), 1 = not in water (good)
-    print(f'{str(datetime.now())} Calc constraint: ocean')
     in_ocean = is_in_shape(point, ocean_grid_elements[grid_element_key])
 
     # If vegetationpercentage is high, give it a bad fitness
-    print(f'{str(datetime.now())} Calc constraint: vegetation')
     vegetation = evaluate_vegetation(
         point, sentinel_row_tiles[grid_element_key])
 
     # Elevation from coord. ATM heigher = better?
-    print(f'{str(datetime.now())} Calc constraint: city')
     elevation = get_elevation_from_coords(point)
 
     return {
@@ -133,6 +135,20 @@ def generate_initial_population(individuals, chromosome_length):
         print(initial_population)
 
     return initial_population
+
+
+def validate_population(population):
+    for index in range(0, len(population) - 1):
+        chromosome = population[index]
+        lon = chromosome[0]
+        lat = chromosome[1]
+
+        if lon > 180 or lon < -180 or lat < -90 or lat > 90:
+            lon = random.uniform(-180, 180)
+            lat = random.uniform(-90, 90)
+            population[index] = np.array([lon, lat])
+
+    return population
 
 
 def select_elite_chromosomes(population, scores, amount=50):
@@ -230,13 +246,15 @@ ocean_tile_file = 'geodata/processed_map_elements.pkl'
 with open(ocean_tile_file, 'rb') as fp:
     ocean_grid_elements = pickle.load(fp)
 
-height_map_file = './image_data/heightmap.png'
-height_tiles = create_image_tiles(height_map_file)
+# height_map_file = './image_data/heightmap.png'
+# height_tiles = create_image_tiles(height_map_file)
 
 sentinel_data_file = './geodata/sentinel_2_2020_07_01_to_2020_08_31_compressed'
 sentinel_row_tiles = {}
+print(f'Loading Sentinel Data')
 for row_index in range(-90, 90):
-    print(f'Loading row {row_index} into dict')
+    if debug:
+        print(f'Loading row {row_index} into dict')
     file_path = f'{sentinel_data_file}/row_{row_index}.pbz2'
     data = decompress_pickle(file_path)
 
@@ -271,23 +289,31 @@ for generation in range(max_generations):
     for chromosome_index in range(0, population_size - 1):
         el = constraint_raw_data[chromosome_index]
         constraintCount = len(el)
+        fitness_distance = 0
+        fitness_ocean = 0
+        fitness_vegetation = 0
+        fitness_elevation = 0
 
         # Transform min_city_distance and max_city_distance to 0 - 1 (percentage)
-        fitness_distance = el['constraint_distance'] * \
-            100 / max_city_distance / 100
+        if 'constraint_distance' in el:
+            fitness_distance = el['constraint_distance'] * \
+                100 / max_city_distance / 100
 
         # Fitness for ocean check 1 or 0
-        fitness_ocean = el['constraint_ocean']
+        if 'constraint_ocean' in el:
+            fitness_ocean = el['constraint_ocean']
 
-        # Fitness for health/vegetation
-        fitness_vegetation = el['constraint_vegetation']
+        # Fitness for vegetation
+        if 'constraint_vegetation' in el:
+            fitness_vegetation = el['constraint_vegetation']
 
         # Transform max_elevation to 0 - 1 (percentage)
-        fitness_vegetation = el['constraint_vegetation'] * \
-            100 / max_elevation / 100
+        if 'constraint_elevation' in el:
+            fitness_elevation = el['constraint_elevation'] * \
+                100 / max_elevation / 100
 
         fitness[chromosome_index] = (
-            fitness_distance + fitness_ocean + fitness_vegetation) / constraintCount
+            fitness_distance + fitness_ocean + fitness_vegetation + fitness_elevation) / constraintCount
 
     max_fitness = np.max(fitness)
     max_fit_index = np.where(fitness == np.max(fitness))[0][0]
@@ -323,6 +349,11 @@ for generation in range(max_generations):
 
     # Apply mutation
     population = randomly_mutate_population(population, mutation_rate)
+
+    # check validation if chromosome are outside valid range
+    population = validate_population(population)
+
+    # Append population to history for video generation
     population_history.append(population)
 
     if debug:
@@ -338,9 +369,10 @@ print("https://www.google.com/maps/search/?api=1&query=" +
       str(population[max_fit_index][1]) + "," + str(population[max_fit_index][0]))
 print("==================================================")
 print("Data")
-print(f"Cities: {cities_file}")
+print(f"Cities Data: {cities_file}")
 print(f"Ocean Data: {ocean_tile_file}")
 print(f"Sentinel Data: {sentinel_data_file}")
+print(f"Elevation Data: heightmap_A1 - D2.tif")
 print("...")
 
 # [-160.42666633  -47.61328754] - new
