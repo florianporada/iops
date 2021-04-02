@@ -103,26 +103,26 @@ def get_elevation_from_coords(point):
 def get_constraint_data(point):
     grid_element_key = str(math.floor(
         point[0])) + "," + str(math.floor(point[1]))
+    constraint_data = {}
 
     # evaluate by distance
     distance = get_closest_city(point, cities)
+    constraint_data.update({'constraint_distance': distance})
 
     # 0 = point is the water (bad), 1 = not in water (good)
     in_ocean = is_in_shape(point, ocean_grid_elements[grid_element_key])
+    constraint_data.update({'constraint_ocean': in_ocean})
 
     # If vegetationpercentage is high, give it a bad fitness
     vegetation = evaluate_vegetation(
         point, sentinel_row_tiles[grid_element_key])
+    constraint_data.update({'constraint_vegetation': vegetation})
 
     # Elevation from coord. ATM heigher = better?
     elevation = get_elevation_from_coords(point)
+    constraint_data.update({'constraint_elevation': elevation})
 
-    return {
-        'constraint_ocean': in_ocean,
-        'constraint_distance': distance,
-        'constraint_vegetation': vegetation,
-        'constraint_elevation': elevation
-    }
+    return constraint_data
 
 
 def generate_initial_population(individuals, chromosome_length):
@@ -260,7 +260,6 @@ for row_index in range(-90, 90):
 
     sentinel_row_tiles.update(data)
 
-
 # -------------------------- Execution
 for generation in range(max_generations):
     print(f'{str(datetime.now())} Generation Nr.{str(generation)}')
@@ -359,7 +358,6 @@ for generation in range(max_generations):
     if debug:
         print("population:")
         print(population)
-
 
 print("==================================================")
 print("Result")
